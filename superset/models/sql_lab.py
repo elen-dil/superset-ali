@@ -25,13 +25,13 @@ from datetime import datetime
 from typing import Any, cast, Optional, TYPE_CHECKING
 
 import sqlalchemy as sqla
-from flask import current_app as app
+from flask import current_app as app, url_for
 from flask_appbuilder import Model
 from flask_appbuilder.models.decorators import renders
 from flask_babel import gettext as __
 from humanize import naturaltime
 from jinja2.exceptions import TemplateError
-from markupsafe import Markup
+from markupsafe import escape, Markup
 from sqlalchemy import (
     Boolean,
     Column,
@@ -604,13 +604,10 @@ class SavedQuery(
 
     @property
     def pop_tab_link(self) -> Markup:
-        return Markup(
-            f"""
-            <a href="/sqllab?savedQueryId={self.id}">
-                <i class="fa fa-link"></i>
-            </a>
-        """
-        )
+        # FAB list view renders this raw HTML; use url_for so Flask prepends
+        # SCRIPT_NAME (the application_root) under subdirectory deployments.
+        href = escape(url_for("SqllabView.root", savedQueryId=self.id))
+        return Markup(f'<a href="{href}"><i class="fa fa-link"></i></a>')
 
     @property
     def user_email(self) -> str:
