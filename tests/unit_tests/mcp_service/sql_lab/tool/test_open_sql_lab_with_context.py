@@ -26,6 +26,8 @@ from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
+from sqlalchemy.dialects import mysql, postgresql
+
 from superset.mcp_service.sql_lab.schemas import OpenSqlLabRequest
 
 
@@ -98,6 +100,15 @@ def _make_mock_ctx() -> MagicMock:
     return MagicMock()
 
 
+def _make_mock_database(dialect: Any = None) -> Mock:
+    """Create a mock Database whose identifier quoting uses a real dialect."""
+    dialect = dialect or postgresql.dialect()
+    return Mock(
+        database_name="examples",
+        quote_identifier=dialect.identifier_preparer.quote,
+    )
+
+
 class TestOpenSqlLabWithContext:
     """Regression coverage for sanitized SQL Lab read-path output."""
 
@@ -114,7 +125,7 @@ class TestOpenSqlLabWithContext:
             with (
                 patch(
                     "superset.daos.database.DatabaseDAO.find_by_id",
-                    return_value=Mock(database_name="examples"),
+                    return_value=_make_mock_database(),
                 ),
                 patch.object(
                     mod.event_logger, "log_context", return_value=nullcontext()
@@ -157,7 +168,7 @@ class TestOpenSqlLabWithContext:
             with (
                 patch(
                     "superset.daos.database.DatabaseDAO.find_by_id",
-                    return_value=Mock(database_name="examples"),
+                    return_value=_make_mock_database(),
                 ),
                 patch.object(
                     mod.event_logger, "log_context", return_value=nullcontext()
@@ -198,7 +209,7 @@ class TestOpenSqlLabWithContext:
             with (
                 patch(
                     "superset.daos.database.DatabaseDAO.find_by_id",
-                    return_value=Mock(database_name="examples"),
+                    return_value=_make_mock_database(),
                 ),
                 patch.object(
                     mod.event_logger, "log_context", return_value=nullcontext()
@@ -261,7 +272,7 @@ class TestOpenSqlLabWithContext:
             with (
                 patch(
                     "superset.daos.database.DatabaseDAO.find_by_id",
-                    return_value=Mock(database_name="examples"),
+                    return_value=_make_mock_database(),
                 ),
                 patch.object(
                     mod.event_logger, "log_context", return_value=nullcontext()
@@ -415,3 +426,48 @@ class TestOpenSqlLabWithContext:
             )
         finally:
             _restore_modules(saved_modules)
+
+    def _run_dataset_context(
+        self, schema: str | None, dataset: str, dialect: Any = None
+    ) -> str:
+        mod, saved_modules = _get_tool_module()
+        try:
+            request: OpenSqlLabRequest = OpenSqlLabRequest(
+                database_id=12,
+                schema=schema,
+                dataset_in_context=dataset,
+            )
+            with (
+                patch(
+                    "superset.daos.database.DatabaseDAO.find_by_id",
+                    return_value=_make_mock_database(dialect),
+                ),
+                patch.object(
+                    mod.event_logger, "log_context", return_value=nullcontext()
+                ),
+                patch.object(
+                    mod,
+                    "get_superset_base_url",
+                    return_value="https://superset.example.com",
+                ),
+            ):
+                response = mod.open_sql_lab_with_context(request, _make_mock_ctx())
+            return parse_qs(urlsplit(response.url).query)["sql"][0]
+        finally:
+            _restore_modules(saved_modules)
+
+    def test_quotes_identifiers_that_require_quoting(self) -> None:
+        sql = self._run_dataset_context("My Schema", "order-items")
+        assert sql.endswith('\nSELECT * FROM "My Schema"."order-items" LIMIT 100;')
+
+    def test_quotes_reserved_word_table_without_schema(self) -> None:
+        sql = self._run_dataset_context(None, "select")
+        assert sql.endswith('\nSELECT * FROM "select" LIMIT 100;')
+
+    def test_uses_target_database_dialect_quote_character(self) -> None:
+        sql = self._run_dataset_context("My Schema", "order-items", mysql.dialect())
+        assert sql.endswith("\nSELECT * FROM `My Schema`.`order-items` LIMIT 100;")
+
+    def test_plain_identifiers_are_not_quoted(self) -> None:
+        sql = self._run_dataset_context("public", "orders")
+        assert sql.endswith("\nSELECT * FROM public.orders LIMIT 100;")
