@@ -24,6 +24,13 @@ assists people when migrating to a new version.
 
 ## Next
 
+- SSH tunneling now uses paramiko 5 and sshtunnel 0.5.1 (CVE-2026-44405).
+  paramiko 5 no longer supports SHA-1 based algorithms: `ssh-rsa` (RSA/SHA-1)
+  signatures, SHA-1 Diffie-Hellman key exchange, DSA keys and GSSAPI auth.
+  Tunnels to SSH servers that only offer these (e.g. OpenSSH < 7.2) will fail
+  to connect; upgrade the bastion or switch it to `rsa-sha2-256/512`, ECDSA or
+  Ed25519 keys. RSA keys themselves keep working via SHA-2 signatures.
+
 - Example export (`/export_as_example/`) rejects dashboards whose charts or
   native-filter targets use semantic views; use the ordinary chart/dashboard
   bundle export instead.

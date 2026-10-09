@@ -14,6 +14,8 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import socket
+import threading
 from unittest.mock import Mock, patch
 
 import paramiko
@@ -41,7 +43,7 @@ from paramiko import (
 from superset.commands.database.ssh_tunnel.exceptions import (
     SSHTunnelHostKeyVerificationError,
 )
-from superset.extensions.ssh import SSHManager, SSHManagerFactory
+from superset.extensions.ssh import _load_private_key, SSHManager, SSHManagerFactory
 
 
 def _make_manager(strict: bool = False) -> SSHManager:
@@ -443,3 +445,133 @@ def test_ssh_tunnel_schema_round_trips_server_host_key() -> None:
     }
     loaded = DatabaseSSHTunnel().load(payload)
     assert loaded["server_host_key"] == authorized
+
+
+def test_paramiko_rejects_sha1_rsa_signatures() -> None:
+    """
+    CVE-2026-44405 / GHSA-r374-rxx8-8654: paramiko must not sign, verify or
+    negotiate RSA with SHA-1 (``ssh-rsa`` as a signature algorithm). RSA keys
+    themselves remain usable via the SHA-2 ``rsa-sha2-*`` algorithms.
+    """
+    key = RSAKey.generate(2048)
+
+    assert "ssh-rsa" not in RSAKey.HASHES
+    with pytest.raises(KeyError):
+        key.sign_ssh_data(b"payload", algorithm="ssh-rsa")
+    assert "ssh-rsa" not in paramiko.Transport._preferred_keys  # type: ignore[attr-defined]
+    assert "ssh-rsa" not in paramiko.Transport._preferred_pubkeys  # type: ignore[attr-defined]
+
+    msg = key.sign_ssh_data(b"payload", algorithm="rsa-sha2-256")
+    msg.rewind()
+    assert key.verify_ssh_sig(b"payload", msg)
+
+
+class _EchoSSHServer(paramiko.ServerInterface):
+    """In-process SSH server accepting one public key and echoing forwarded data."""
+
+    def __init__(self, client_key: paramiko.PKey) -> None:
+        self.client_key = client_key
+        self.destinations: list[tuple[str, int]] = []
+
+    def get_allowed_auths(self, username: str) -> str:
+        return "publickey"
+
+    def check_auth_publickey(self, username: str, key: paramiko.PKey) -> int:
+        if username == "tunneluser" and key == self.client_key:
+            return paramiko.common.AUTH_SUCCESSFUL
+        return paramiko.common.AUTH_FAILED
+
+    def check_channel_direct_tcpip_request(
+        self, chanid: int, origin: tuple[str, int], destination: tuple[str, int]
+    ) -> int:
+        self.destinations.append(destination)
+        return paramiko.common.OPEN_SUCCEEDED
+
+
+def _serve_ssh(
+    listener: socket.socket,
+    host_key: paramiko.PKey,
+    server: _EchoSSHServer,
+    transports: list[paramiko.Transport],
+) -> None:
+    while True:
+        try:
+            conn, _ = listener.accept()
+        except OSError:
+            return
+        transport = paramiko.Transport(conn)
+        transport.add_server_key(host_key)
+        transports.append(transport)
+        try:
+            transport.start_server(server=server)
+        except (paramiko.SSHException, EOFError):
+            continue
+        threading.Thread(target=_echo_channels, args=(transport,), daemon=True).start()
+
+
+def _echo_channels(transport: paramiko.Transport) -> None:
+    while transport.is_active():
+        chan = transport.accept(timeout=0.5)
+        if chan is None:
+            continue
+        while data := chan.recv(1024):
+            chan.sendall(data)
+        chan.close()
+
+
+def test_create_tunnel_end_to_end_with_rsa_keys() -> None:
+    """
+    SSH tunneling keeps working end to end with RSA host and client keys, using
+    SHA-2 signatures only: the tunnel authenticates, pins the host key, and
+    forwards traffic to the remote bind address.
+    """
+    host_key = RSAKey.generate(2048)
+    client_key = generate_rsa_key(public_exponent=65537, key_size=2048)
+    client_pem = client_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.OpenSSH,
+        encryption_algorithm=NoEncryption(),
+    ).decode()
+
+    server = _EchoSSHServer(_load_private_key(client_pem, None))
+    transports: list[paramiko.Transport] = []
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(5)
+    threading.Thread(
+        target=_serve_ssh,
+        args=(listener, host_key, server, transports),
+        daemon=True,
+    ).start()
+
+    app = Mock()
+    app.config = {
+        "SSH_TUNNEL_LOCAL_BIND_ADDRESS": "127.0.0.1",
+        "SSH_TUNNEL_TIMEOUT_SEC": 10.0,
+        "SSH_TUNNEL_PACKET_TIMEOUT_SEC": 1.0,
+        "SSH_TUNNEL_STRICT_HOST_KEY_CHECKING": True,
+    }
+    manager = SSHManager(app)
+    ssh_tunnel = _make_ssh_tunnel(client_pem)
+    ssh_tunnel.server_address = "127.0.0.1"
+    ssh_tunnel.server_port = listener.getsockname()[1]
+    ssh_tunnel.server_host_key = _authorized_key(host_key)
+
+    forwarder = manager.create_tunnel(
+        ssh_tunnel, "postgresql://user:pass@db.example.com:5432/x"
+    )
+    try:
+        with forwarder:
+            assert forwarder._transport.host_key_type in RSAKey.HASHES
+            assert forwarder._transport._agreed_pubkey_algorithm in RSAKey.HASHES
+            with socket.create_connection(
+                ("127.0.0.1", forwarder.local_bind_port), timeout=5
+            ) as client:
+                client.sendall(b"select 1")
+                assert client.recv(1024) == b"select 1"
+    finally:
+        listener.close()
+        for transport in transports:
+            transport.close()
+
+    assert server.destinations == [("db.example.com", 5432)]
