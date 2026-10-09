@@ -441,7 +441,7 @@ watchdog==6.0.0
     # via apache-superset (pyproject.toml)
 wcwidth==0.2.13
     # via prompt-toolkit
-werkzeug==3.1.6
+werkzeug==3.1.9
     # via
     #   -r requirements/base.in
     #   flask
