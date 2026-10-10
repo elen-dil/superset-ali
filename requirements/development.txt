@@ -380,7 +380,7 @@ geographiclib==2.0
     #   geopy
 geojson==3.3.0
     # via sqlalchemy-cratedb
-geopy==2.4.1
+geopy==2.5.0
     # via
     #   -c requirements/base-constraint.txt
     #   apache-superset
