@@ -1,0 +1,41 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Time-boxed pip-audit ignores, consumed by scripts/pip_audit.py.
+#
+# Every entry is an accepted risk and must have an owner-reviewed reason and
+# an expiry date. Once an entry expires, scripts/pip_audit.py fails until the
+# risk is re-reviewed and the entry renewed, or the vulnerable dependency is
+# upgraded and the entry removed.
+ignores:
+  - id: PYSEC-2026-2858
+    aliases:
+      - CVE-2026-44405
+      - GHSA-r374-rxx8-8654
+    package: paramiko
+    added: 2026-10-11
+    expires: 2026-12-08
+    tracking: https://github.com/elen-dil/superset-ali/issues/5
+    reason: >-
+      paramiko 3.x still accepts SHA-1 ("ssh-rsa") RSA signatures. The only
+      fix is paramiko 5.0.0, a breaking upgrade that also needs sshtunnel
+      0.5.1, so it is deferred to a separate upgrade. Accepted risk: CVSS 3.4
+      (AV:A/AC:H); Superset is only an SSH client, and only when the
+      SSH_TUNNELING feature flag is on; paramiko prefers rsa-sha2-512/256, so
+      SHA-1 is used only with legacy servers or under an active downgrade
+      attack. Mitigations are documented under "SSH Tunneling" in
+      docs/admin_docs/configuration/networking-settings.mdx.
