@@ -14,6 +14,12 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import time
+
+import pytest
+from pandas import DataFrame
+
+from superset.exceptions import InvalidPostProcessingError
 from superset.utils.pandas_postprocessing import (
     geodetic_parse,
     geohash_decode,
@@ -129,3 +135,23 @@ def test_geohash_encode_drops_working_columns():
     assert post_df.columns.tolist() == ["city", "latitude", "longitude", "hash"]
     assert not post_df.columns.duplicated().any()
     assert series_to_list(post_df["hash"]) == series_to_list(lonlat_df["geohash"])
+
+
+def test_geodetic_parse_rejects_long_malformed_string_quickly():
+    """
+    Long malformed geodetic strings must be rejected without excessive CPU.
+
+    Older geopy releases backtrack quadratically on such inputs when parsing
+    them into a `Point` (CVE-2026-77387 / GHSA-mhvh-fq92-pfmr).
+    """
+    df = DataFrame({"geodetic": ["1" * 10000]})
+
+    start = time.perf_counter()
+    with pytest.raises(InvalidPostProcessingError):
+        geodetic_parse(
+            df=df,
+            geodetic="geodetic",
+            latitude="latitude",
+            longitude="longitude",
+        )
+    assert time.perf_counter() - start < 1
