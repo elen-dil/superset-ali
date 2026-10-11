@@ -29,7 +29,7 @@ ignores:
     package: paramiko
     added: 2026-10-11
     expires: 2026-12-08
-    tracking: https://github.com/elen-dil/superset-ali/issues/5
+    tracking: https://github.com/elen-dil/superset-ali/issues/20
     reason: >-
       paramiko 3.x still accepts SHA-1 ("ssh-rsa") RSA signatures. The only
       fix is paramiko 5.0.0, a breaking upgrade that also needs sshtunnel
