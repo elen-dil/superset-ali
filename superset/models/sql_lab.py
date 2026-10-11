@@ -25,7 +25,7 @@ from datetime import datetime
 from typing import Any, cast, Optional, TYPE_CHECKING
 
 import sqlalchemy as sqla
-from flask import current_app as app
+from flask import current_app as app, url_for
 from flask_appbuilder import Model
 from flask_appbuilder.models.decorators import renders
 from flask_babel import gettext as __
@@ -604,12 +604,10 @@ class SavedQuery(
 
     @property
     def pop_tab_link(self) -> Markup:
-        return Markup(
-            f"""
-            <a href="/sqllab?savedQueryId={self.id}">
-                <i class="fa fa-link"></i>
-            </a>
-        """
+        # FAB list view renders this raw HTML; use url_for so Flask prepends
+        # SCRIPT_NAME (the application_root) under subdirectory deployments.
+        return Markup('<a href="{}"><i class="fa fa-link"></i></a>').format(
+            url_for("SqllabView.root", savedQueryId=self.id)
         )
 
     @property

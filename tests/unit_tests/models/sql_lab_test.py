@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from flask import current_app
 from flask_appbuilder import Model
 from jinja2.exceptions import TemplateError
 from pytest_mock import MockerFixture
@@ -290,3 +291,27 @@ def test_adhoc_column_to_sqla_skips_time_grain_for_non_temporal_column() -> None
     result, _ = query.adhoc_column_to_sqla(col)
 
     assert "start of day" not in _compile(result)
+
+
+def test_saved_query_pop_tab_link_respects_app_root(app_context: None) -> None:
+    """`pop_tab_link` must carry the application root under subdirectory deploys.
+
+    Like `Dashboard.dashboard_link` and `Slice.slice_link`, the href is built via
+    `url_for`, which prepends the request's script root (derived from the
+    `base_url` path).
+    """
+    saved_query = SavedQuery(id=42)
+
+    with current_app.test_request_context("/", base_url="http://localhost/superset/"):
+        link = str(saved_query.pop_tab_link)
+
+    assert 'href="/superset/sqllab/?savedQueryId=42"' in link
+
+
+def test_saved_query_pop_tab_link_at_root(app_context: None) -> None:
+    saved_query = SavedQuery(id=42)
+
+    with current_app.test_request_context("/"):
+        link = str(saved_query.pop_tab_link)
+
+    assert 'href="/sqllab/?savedQueryId=42"' in link
