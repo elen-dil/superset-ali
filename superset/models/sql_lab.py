@@ -31,7 +31,7 @@ from flask_appbuilder.models.decorators import renders
 from flask_babel import gettext as __
 from humanize import naturaltime
 from jinja2.exceptions import TemplateError
-from markupsafe import escape, Markup
+from markupsafe import Markup
 from sqlalchemy import (
     Boolean,
     Column,
@@ -606,8 +606,9 @@ class SavedQuery(
     def pop_tab_link(self) -> Markup:
         # FAB list view renders this raw HTML; use url_for so Flask prepends
         # SCRIPT_NAME (the application_root) under subdirectory deployments.
-        href = escape(url_for("SqllabView.root", savedQueryId=self.id))
-        return Markup(f'<a href="{href}"><i class="fa fa-link"></i></a>')
+        return Markup('<a href="{}"><i class="fa fa-link"></i></a>').format(
+            url_for("SqllabView.root", savedQueryId=self.id)
+        )
 
     @property
     def user_email(self) -> str:
