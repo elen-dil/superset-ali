@@ -135,6 +135,27 @@ running a custom auth postback endpoint), you can add the endpoints to `WTF_CSRF
 3. Verify data is flowing
    - Once SSH tunneling has been enabled, go to SQL Lab and write a query to verify data is properly flowing.
 
+### Hardening SSH tunnels
+
+Superset uses [paramiko](https://www.paramiko.org/) (through `sshtunnel`) as its SSH client.
+The paramiko 3.x line pinned by Superset still accepts SHA-1 (`ssh-rsa`) RSA signatures
+([CVE-2026-44405](https://github.com/advisories/GHSA-r374-rxx8-8654)). paramiko prefers
+`rsa-sha2-512`/`rsa-sha2-256`, so SHA-1 is only used against legacy SSH servers or if an
+attacker on the network path forces a downgrade. To reduce this risk:
+
+- **Prefer ed25519 or ECDSA keys.** Use an ed25519 (or ECDSA) private key for tunnel
+  authentication, and configure the SSH bastion with an ed25519 or ECDSA host key. Superset
+  loads ed25519, ECDSA and RSA private keys. If you must use RSA, make sure the server
+  supports `rsa-sha2-256`/`rsa-sha2-512` (OpenSSH 7.2 and later).
+- **Pin the server host key.** Set the tunnel's `server_host_key` to the bastion's public host
+  key in authorized-key form (for example the output of
+  `ssh-keyscan -t ed25519 <host>`, without the hostname field:
+  `ssh-ed25519 AAAA...`). Superset checks the key the server presents against it before
+  opening the tunnel, and rejects the connection if they differ.
+- **Require host key pinning on every tunnel.** Set
+  `SSH_TUNNEL_STRICT_HOST_KEY_CHECKING = True` in `superset_config.py` so that tunnels
+  without a `server_host_key` are rejected instead of connecting without host key checks.
+
 ## Domain Sharding
 
 :::note
