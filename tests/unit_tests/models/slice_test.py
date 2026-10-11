@@ -390,3 +390,33 @@ def test_set_related_perm_known_type_denormalizes_perms_from_datasource() -> Non
     assert target.perm == "[db].[table](id:5)"
     assert target.catalog_perm == "[db].[catalog]"
     assert target.schema_perm == "[db].[schema]"
+
+
+def test_slice_link_renders_href_under_subdirectory(app_context: None) -> None:
+    """slice_link emits a working explore href under a subdirectory app root."""
+    slc = Slice(id=9, slice_name="Sales")
+
+    with current_app.test_request_context("/", base_url="http://localhost/superset/"):
+        link = str(slc.slice_link)
+
+    assert link == '<a href="/superset/explore/?slice_id=9">Sales</a>'
+
+
+def test_slice_link_escapes_href(app_context: None) -> None:
+    """slice_link HTML-escapes the url_for result before Markup-marking.
+
+    Mirrors `Dashboard.dashboard_link`: the href is escaped for HTML attribute
+    defence-in-depth, so markup in the application root cannot break out of
+    the attribute.
+    """
+    slc = Slice(id=9, slice_name="<b>chart</b>")
+
+    with current_app.test_request_context(
+        "/", environ_overrides={"SCRIPT_NAME": '/a"&<x>'}
+    ):
+        link = str(slc.slice_link)
+
+    assert link == (
+        '<a href="/a&#34;&amp;&lt;x&gt;/explore/?slice_id=9">'
+        "&lt;b&gt;chart&lt;/b&gt;</a>"
+    )
