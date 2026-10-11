@@ -100,13 +100,11 @@ def open_sql_lab_with_context(
                     f"-- Context: Working with dataset '{request.dataset_in_context}'\n"
                     f"-- Database: {database.database_name}\n"
                 )
+                quote = database.quote_identifier
+                table_reference = quote(request.dataset_in_context)
                 if request.schema_name:
                     context_comment += f"-- Schema: {request.schema_name}\n"
-                    table_reference = (
-                        f"{request.schema_name}.{request.dataset_in_context}"
-                    )
-                else:
-                    table_reference = request.dataset_in_context
+                    table_reference = f"{quote(request.schema_name)}.{table_reference}"
 
                 context_comment += f"\nSELECT * FROM {table_reference} LIMIT 100;"
                 params["sql"] = context_comment
